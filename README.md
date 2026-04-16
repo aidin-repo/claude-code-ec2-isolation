@@ -1,6 +1,6 @@
 # Claude Code on EC2 — Network-Isolated Deployment
 
-> **⚠️ This is a proof of concept.** Test thoroughly and understand every security layer before rolling out to your team. You can use your preferred coding tools to deploy and customize — including [Kiro](https://kiro.dev) and [Claude Code on Bedrock](https://docs.anthropic.com/en/docs/claude-code/bedrock).
+> **⚠️ This is a proof of concept.** Test thoroughly and understand every security layer before rolling out to your team. You can use your preferred coding tools to deploy and customize — including [Kiro](https://kiro.dev) and [Claude Code on Bedrock](https://code.claude.com/docs/en/amazon-bedrock).
 
 Deploy Claude Code on a shared EC2 instance with per-user isolation, Amazon Bedrock integration, and defense-in-depth security. Designed for regulated environments (healthcare, finance) where developers must not access production databases containing PHI/PII.
 
@@ -321,5 +321,5 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 - [Claude Code Deployment Patterns with Amazon Bedrock](https://aws.amazon.com/blogs/machine-learning/claude-code-deployment-patterns-and-best-practices-with-amazon-bedrock/)
 - [Guidance for Claude Code with Amazon Bedrock](https://github.com/aws-solutions-library-samples/guidance-for-claude-code-with-amazon-bedrock)
 - [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
-- [Claude Code Bedrock Documentation](https://docs.anthropic.com/en/docs/claude-code/bedrock)
+- [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
 - [Claude Code Devcontainer Reference](https://github.com/anthropics/claude-code/tree/main/.devcontainer)

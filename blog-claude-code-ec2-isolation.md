@@ -484,4 +484,4 @@ Anthropic provides a [reference devcontainer](https://github.com/anthropics/clau
 - [Claude Code Network Configuration](https://docs.anthropic.com/en/docs/claude-code/network-config)
 - [Claude Code Monitoring Guidance](https://github.com/aws-solutions-library-samples/guidance-for-claude-code-with-amazon-bedrock/blob/main/assets/docs/MONITORING.md)
 - [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
-- [Claude Code Bedrock Documentation](https://docs.anthropic.com/en/docs/claude-code/bedrock)
+- [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
