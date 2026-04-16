@@ -1,0 +1,588 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Claude Code on EC2 — Shared instance with per-user isolation, Bedrock integration, and network security
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.2xlarge
+    AllowedValues: [t3.xlarge, t3.2xlarge, m5.xlarge, m5.2xlarge]
+    Description: EC2 instance type (8 vCPU, 32 GB recommended for 30 devs)
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+    Description: Ubuntu 24.04 AMI (auto-resolved from SSM public parameter)
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: SSH key pair (optional — SSM is primary access method, leave empty to skip)
+  VpcId:
+    Type: String
+    Default: ''
+    Description: Existing VPC ID (leave empty to create a new VPC)
+  SubnetId:
+    Type: String
+    Default: ''
+    Description: Existing subnet ID (leave empty to create a new public subnet)
+  RouteTableId:
+    Type: String
+    Default: ''
+    Description: Route table ID for S3 gateway endpoint (leave empty if one already exists or if creating new VPC)
+  OtelEndpoint:
+    Type: String
+    Default: ''
+    Description: OpenTelemetry collector endpoint (optional — leave empty to skip telemetry export)
+  SsoStartUrl:
+    Type: String
+    Default: ''
+    Description: IAM Identity Center start URL (e.g. https://my-org.awsapps.com/start) — leave empty to skip SSO setup
+  SsoRoleName:
+    Type: String
+    Default: BedrockClaudeCode
+    Description: IAM Identity Center permission set name for Bedrock access
+  DeveloperUsers:
+    Type: String
+    Default: user1,user2
+    Description: Comma-separated list of developer Linux usernames to create
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  HasOtelEndpoint: !Not [!Equals [!Ref OtelEndpoint, '']]
+  HasSso: !Not [!Equals [!Ref SsoStartUrl, '']]
+  CreateVpc: !Equals [!Ref VpcId, '']
+  CreateS3Endpoint: !And
+    - !Not [!Equals [!Ref RouteTableId, '']]
+    - !Not [!Condition CreateVpc]
+
+Resources:
+
+  # ============================================================
+  # Networking (created only when VpcId is empty)
+  # ============================================================
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: CreateVpc
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: claude-code-vpc
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: CreateVpc
+    Properties:
+      Tags:
+        - Key: Name
+          Value: claude-code-igw
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVpc
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Condition: CreateVpc
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: claude-code-subnet
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: CreateVpc
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: claude-code-rt
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    Condition: CreateVpc
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVpc
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref RouteTable
+
+  S3GatewayEndpointNew:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVpc
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref RouteTable
+
+  # ============================================================
+  # Security Groups
+  # ============================================================
+  ClaudeCodeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Claude Code EC2 - restrict outbound, block DB ports
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: claude-code-ec2-sg
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for Bedrock VPC endpoint, SSM, STS, and api.anthropic.com
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for apt package repositories and Claude Code installer
+
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTPS from Claude Code EC2 to VPC endpoints
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: claude-code-vpce-sg
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref ClaudeCodeSecurityGroup
+          Description: HTTPS from Claude Code EC2
+
+  # ============================================================
+  # IAM Role for EC2
+  # ============================================================
+  ClaudeCodeInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ClaudeCodeEC2Role-${AWS::StackName}
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: BedrockInvokeAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AllowBedrock
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListInferenceProfiles
+                Resource:
+                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-*
+                  - !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*
+                  - !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:application-inference-profile/*
+              - Sid: AllowSSMParameterRead
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/claude-code/*
+        - PolicyName: DenyDatabaseAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DenyAllDatabases
+                Effect: Deny
+                Action:
+                  - rds:*
+                  - dynamodb:*
+                  - redshift:*
+                  - neptune-db:*
+                  - docdb-elastic:*
+                  - elasticache:*
+                  - memorydb:*
+                Resource: '*'
+              - Sid: DenyEC2NetworkChanges
+                Effect: Deny
+                Action:
+                  - ec2:AuthorizeSecurityGroupEgress
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupEgress
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:CreateSecurityGroup
+                  - ec2:DeleteSecurityGroup
+                Resource: '*'
+
+  ClaudeCodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ClaudeCodeInstanceRole
+
+  # ============================================================
+  # VPC Endpoints for private connectivity
+  # ============================================================
+  BedrockRuntimeEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.bedrock-runtime
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  SSMEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  SSMMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  EC2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2messages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  STSEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.sts
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  S3GatewayEndpointExisting:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: CreateS3Endpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref RouteTableId
+
+  # ============================================================
+  # SSM Parameter for user list
+  # ============================================================
+  DeveloperUserListParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /claude-code/users
+      Type: String
+      Value: !Ref DeveloperUsers
+      Description: Comma-separated list of developer usernames for Claude Code EC2
+
+  # ============================================================
+  # EC2 Instance
+  # ============================================================
+  ClaudeCodeInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      SubnetId: !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+      SecurityGroupIds:
+        - !Ref ClaudeCodeSecurityGroup
+      IamInstanceProfile: !Ref ClaudeCodeInstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 200
+            VolumeType: gp3
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: claude-code-shared-ec2
+        - Key: App
+          Value: ClaudeCode
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > /var/log/claude-code-setup.log 2>&1
+
+          echo "=== Claude Code EC2 Setup Starting ==="
+
+          # --- System packages ---
+          apt-get update -y || true
+          apt-get install -y bubblewrap socat jq git unzip curl
+          # ripgrep may not be available in all Ubuntu repos — install if possible
+          apt-get install -y ripgrep 2>/dev/null || true
+
+          # --- AWS CLI v2 ---
+          if ! command -v aws &>/dev/null; then
+            curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+            unzip -q /tmp/awscliv2.zip -d /tmp
+            /tmp/aws/install
+            rm -rf /tmp/aws /tmp/awscliv2.zip
+          fi
+
+          # --- System hardening ---
+          echo "proc /proc proc defaults,hidepid=invisible 0 0" >> /etc/fstab
+          mount -o remount,hidepid=invisible /proc || true
+          echo "umask 077" >> /etc/profile.d/security.sh
+
+          # --- Managed settings (org-wide, cannot be overridden) ---
+          mkdir -p /etc/claude-code
+
+          OTEL_ENDPOINT="${OtelEndpoint}"
+          if [ -n "$OTEL_ENDPOINT" ]; then
+            OTEL_SETTINGS=$(cat << 'OTELBLOCK'
+              "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+              "OTEL_METRICS_EXPORTER": "otlp",
+              "OTEL_LOGS_EXPORTER": "otlp",
+              "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+          OTELBLOCK
+          )
+            OTEL_SETTINGS="$OTEL_SETTINGS
+              \"OTEL_EXPORTER_OTLP_ENDPOINT\": \"$OTEL_ENDPOINT\","
+          else
+            OTEL_SETTINGS=""
+          fi
+
+          cat > /etc/claude-code/managed-settings.json << SETTINGS
+          {
+            "env": {
+              "CLAUDE_CODE_USE_BEDROCK": "1",
+              "AWS_REGION": "${AWS::Region}",
+              "DISABLE_AUTOUPDATER": "1",
+              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+              "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          $OTEL_SETTINGS
+              "AWS_SDK_UA_APP_ID": "ClaudeCode",
+              "AWS_PROFILE": "claudecode-sso"
+            },
+            "permissions": {
+              "deny": ["Bash(sudo *)"]
+            }
+          }
+          SETTINGS
+
+          # --- Pre-hook: block database connections ---
+          mkdir -p /opt/claude-hooks
+          cat > /opt/claude-hooks/block-db-access.sh << 'HOOKSCRIPT'
+          #!/bin/bash
+          INPUT=$(cat)
+          COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+          if echo "$COMMAND" | grep -qEi '(psql|mysql|mongosh|redis-cli|sqlcmd|cqlsh)'; then
+            echo '{"decision":"deny","reason":"Database client connections are blocked by policy"}'
+            exit 2
+          fi
+
+          if echo "$COMMAND" | grep -qEi '(jdbc:|mongodb://|postgres://|mysql://|redis://)'; then
+            echo '{"decision":"deny","reason":"Database connection strings are blocked by policy"}'
+            exit 2
+          fi
+
+          if echo "$COMMAND" | grep -qEi 'aws (rds|dynamodb|redshift|neptune|docdb)'; then
+            echo '{"decision":"deny","reason":"Direct database service access is blocked by policy"}'
+            exit 2
+          fi
+
+          exit 0
+          HOOKSCRIPT
+          chmod +x /opt/claude-hooks/block-db-access.sh
+
+          # --- OTel per-user identity injection ---
+          cat > /etc/profile.d/claude-otel.sh << 'OTELENV'
+          export OTEL_RESOURCE_ATTRIBUTES="developer.name=$(whoami),developer.email=$(whoami)@company.com,department=engineering"
+          OTELENV
+
+          # --- User provisioning function ---
+          provision_user() {
+            local USERNAME=$1
+            if ! id "$USERNAME" &>/dev/null; then
+              useradd -m -s /bin/bash "$USERNAME"
+              chmod 700 "/home/$USERNAME"
+              mkdir -p /home/$USERNAME/.claude
+              cat > /home/$USERNAME/.claude/settings.json << USERSETTINGS
+          {
+            "env": {
+              "CLAUDE_CODE_USE_BEDROCK": "1",
+              "AWS_REGION": "${AWS::Region}"
+            },
+            "hooks": {
+              "PreToolUse": [
+                {
+                  "matcher": "Bash",
+                  "hooks": [
+                    {
+                      "type": "command",
+                      "command": "/opt/claude-hooks/block-db-access.sh",
+                      "timeout": 5
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+          USERSETTINGS
+
+              # --- AWS CLI SSO profile (if SsoStartUrl provided) ---
+              SSO_URL="${SsoStartUrl}"
+              if [ -n "$SSO_URL" ]; then
+                mkdir -p /home/$USERNAME/.aws
+                cat > /home/$USERNAME/.aws/config << AWSCONFIG
+          [profile claudecode-sso]
+          sso_session = claudecode
+          sso_account_id = ${AWS::AccountId}
+          sso_role_name = ${SsoRoleName}
+          region = ${AWS::Region}
+
+          [sso-session claudecode]
+          sso_start_url = ${SsoStartUrl}
+          sso_region = ${AWS::Region}
+          sso_registration_scopes = sso:account:access
+          AWSCONFIG
+              fi
+
+              chown -R "$USERNAME:$USERNAME" "/home/$USERNAME"
+            fi
+          }
+
+          # --- Auth helper script (global, for all users) ---
+          SSO_URL="${SsoStartUrl}"
+          if [ -n "$SSO_URL" ]; then
+            cat > /usr/local/bin/auth << 'AUTHSCRIPT'
+          #!/bin/bash
+          aws sso login --profile claudecode-sso --use-device-code
+          AUTHSCRIPT
+            chmod +x /usr/local/bin/auth
+          fi
+
+          # --- Create developer users ---
+          USERS="${DeveloperUsers}"
+          for USER in $(echo "$USERS" | tr ',' ' '); do
+            USER=$(echo "$USER" | xargs)
+            provision_user "$USER"
+          done
+
+          # --- Install Claude Code for each user ---
+          for USER in $(echo "$USERS" | tr ',' ' '); do
+            USER=$(echo "$USER" | xargs)
+            su - "$USER" -c 'curl -fsSL https://claude.ai/install.sh | bash' || echo "Claude Code install failed for $USER"
+          done
+
+          # --- Copy settings template for sync script ---
+          FIRST_USER=$(echo "${DeveloperUsers}" | cut -d',' -f1 | xargs)
+          cp /home/$FIRST_USER/.claude/settings.json /etc/claude-code/user-settings-template.json 2>/dev/null || true
+          # Save AWS CLI config template for sync script (new users get SSO profile automatically)
+          if [ -f /home/$FIRST_USER/.aws/config ]; then
+            cp /home/$FIRST_USER/.aws/config /etc/claude-code/aws-config-template 2>/dev/null || true
+          fi
+
+          # --- User sync script (runs hourly via cron) ---
+          mkdir -p /opt/scripts
+          cat > /opt/scripts/sync-users.sh << 'SYNCSCRIPT'
+          #!/bin/bash
+          USERS=$(aws ssm get-parameter --name /claude-code/users --query 'Parameter.Value' --output text --region ${AWS::Region} 2>/dev/null)
+          if [ -z "$USERS" ]; then
+            echo "Failed to fetch user list from SSM"
+            exit 1
+          fi
+          for USER in $(echo "$USERS" | tr ',' ' '); do
+            USER=$(echo "$USER" | xargs)
+            if ! id "$USER" &>/dev/null; then
+              useradd -m -s /bin/bash "$USER"
+              chmod 700 /home/$USER
+              mkdir -p /home/$USER/.claude
+              cp /etc/claude-code/user-settings-template.json /home/$USER/.claude/settings.json 2>/dev/null || true
+              # Copy AWS CLI SSO profile if template exists
+              if [ -f /etc/claude-code/aws-config-template ]; then
+                mkdir -p /home/$USER/.aws
+                cp /etc/claude-code/aws-config-template /home/$USER/.aws/config
+              fi
+              chown -R $USER:$USER /home/$USER
+              su - "$USER" -c 'curl -fsSL https://claude.ai/install.sh | bash' || true
+              echo "Provisioned user: $USER"
+            fi
+          done
+          SYNCSCRIPT
+          chmod +x /opt/scripts/sync-users.sh
+          echo "0 * * * * root /opt/scripts/sync-users.sh >> /var/log/claude-code-sync.log 2>&1" > /etc/cron.d/claude-code-sync
+
+          echo "=== Claude Code EC2 Setup Complete ==="
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref ClaudeCodeInstance
+  InstancePrivateIP:
+    Description: Private IP of the instance
+    Value: !GetAtt ClaudeCodeInstance.PrivateIp
+  SSMSessionCommand:
+    Description: Command to connect via SSM Session Manager
+    Value: !Sub aws ssm start-session --target ${ClaudeCodeInstance}
+  SecurityGroupId:
+    Description: Security group ID (outbound HTTPS only, DB ports blocked)
+    Value: !Ref ClaudeCodeSecurityGroup
+  BedrockEndpointId:
+    Description: Bedrock Runtime VPC Endpoint
+    Value: !Ref BedrockRuntimeEndpoint
+  VpcIdOutput:
+    Description: VPC ID (created or provided)
+    Value: !If [CreateVpc, !Ref VPC, !Ref VpcId]
+  SubnetIdOutput:
+    Description: Subnet ID (created or provided)
+    Value: !If [CreateVpc, !Ref PublicSubnet, !Ref SubnetId]
+  SSMUserSyncCommand:
+    Description: Command to add new users (update SSM parameter then run sync)
+    Value: !Sub |
+      aws ssm put-parameter --name /claude-code/users --value "user1,user2,user3" --type String --overwrite --region ${AWS::Region}
+      aws ssm send-command --instance-ids ${ClaudeCodeInstance} --document-name AWS-RunShellScript --parameters commands=["/opt/scripts/sync-users.sh"] --region ${AWS::Region}
