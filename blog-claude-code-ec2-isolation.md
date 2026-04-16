@@ -2,6 +2,8 @@
 
 *How to deploy Claude Code on a shared Amazon EC2 instance with defense-in-depth security, per-user identity, and Amazon Bedrock — designed for healthcare, finance, and other regulated industries.*
 
+> **📦 Full source code:** [github.com/aidin-repo/claude-code-ec2-isolation](https://github.com/aidin-repo/claude-code-ec2-isolation) — deploy with a single CloudFormation command.
+
 ---
 
 ## The Problem
