@@ -313,7 +313,6 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 | `template.yaml` | CloudFormation template — everything in one file |
 | `connect-sso.sh` | Connection helper script for SSM + SSO |
 | `setup-devcontainer.sh` | Optional: Docker-based isolation with iptables firewall |
-| `blog-claude-code-ec2-isolation.md` | Detailed blog post explaining the architecture and security model |
 
 ## References
 
