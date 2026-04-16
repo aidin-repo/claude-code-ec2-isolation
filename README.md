@@ -4,6 +4,32 @@
 
 Deploy Claude Code on a shared EC2 instance with per-user isolation, Amazon Bedrock integration, and defense-in-depth security. Designed for regulated environments (healthcare, finance) where developers must not access production databases containing PHI/PII.
 
+## The Problem
+
+Your developers want Claude Code. Your security team wants guarantees that an AI coding assistant can't access production databases containing PHI, PII, or other sensitive data.
+
+On a developer laptop — even with managed settings and sandbox enabled — an engineer with admin privileges can:
+
+- Delete the managed settings file
+- Disable the sandbox
+- Install database clients and connect directly to production
+- Modify firewall rules
+
+Managed settings protect against *accidental* override, not *intentional* circumvention. For regulated environments with hard compliance requirements, you need server-side isolation where the controls are enforced at layers developers simply cannot touch.
+
+## Why EC2 Instead of Laptops?
+
+| Control | Laptop (developer has admin) | EC2 (no sudo) |
+|---------|------------------------------|----------------|
+| Delete managed-settings.json | **Can do** | Cannot — owned by root |
+| Disable sandbox | **Can do** | Cannot — managed settings enforce |
+| Bypass security group | N/A (no SG on laptop) | **Cannot** — hypervisor enforced |
+| Modify iptables/firewall | **Can do** | Cannot — requires root |
+| Install DB clients | **Can do** | Cannot — no sudo, no apt-get |
+| Access production DB | **Can do** via local creds | Cannot — SG blocks + IAM denies |
+
+**The key insight:** managed settings are an *administrative* control. Security groups and IAM policies are *technical* controls. In regulated environments, you need technical controls that hold regardless of the user's local permissions.
+
 ## How It Works
 
 Developers connect to a shared EC2 instance via SSM Session Manager (no SSH, no inbound ports). Each developer gets their own Linux user account with isolated home directory, Claude Code installation, and AWS SSO credentials. Four independent security layers prevent access to production databases — even if one layer is bypassed, the others hold.
