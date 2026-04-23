@@ -58,7 +58,7 @@ graph TD
 |---------|----------------------|--------------|-----------------|----------|
 | **1. Laptop** | Developer workstation | Managed settings (MDM), sandbox, permission denies, [Bedrock Guardrails](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock) | Yes (with admin) | General dev teams, low-sensitivity data |
 | **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, hooks, per-user SSO | No | Regulated environments (healthcare, finance) |
-| **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | Prod databases on same VPC, strictest compliance |
+| **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | Domain-level outbound filtering, strictest compliance |
 
 **This repo implements Patterns 2 and 3.** For Pattern 1 (laptop controls), see [Protecting Sensitive Data When Using Claude Code on Amazon Bedrock](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock).
 
