@@ -555,6 +555,18 @@ block-beta
 - You need container-level filesystem and process isolation between developers
 - Defense industry or specific audit requirements
 
+### Sandbox Note
+
+On EC2 directly, Claude Code's [bubblewrap sandbox](https://code.claude.com/docs/en/sandboxing) works fully — it creates an OS-level jail restricting filesystem and network access for every bash command.
+
+Inside Docker containers, bubblewrap **cannot create nested namespaces** (Docker already uses the kernel namespace feature). The devcontainer compensates with **iptables domain allowlist + container boundary** for isolation instead. Both paths achieve network and filesystem restriction — just using different mechanisms:
+
+| | EC2 Direct | Devcontainer |
+|--|-----------|-------------|
+| **Bash isolation** | bubblewrap (kernel-level) | iptables + container boundary |
+| **Network restriction** | Sandbox `allowedDomains` | iptables domain allowlist |
+| **Filesystem restriction** | Sandbox `denyRead`/`allowWrite` | Container filesystem + mount points |
+
 ### How It Works
 
 1. **Deploy** with `EnableDevcontainer=true` — installs Docker, builds the container image
