@@ -42,7 +42,7 @@ Not every team needs EC2 isolation. Use this decision tree to pick the right pat
 graph TD
   A["Does your team handle<br>PHI/PII/regulated data?"] -->|No| B["Pattern 1: Laptop<br>Managed settings + sandbox"]
   A -->|Yes| C["Can developers disable<br>controls on their laptops?"]
-  C -->|"No (MDM-locked)"| D["Pattern 1: Laptop<br>+ Bedrock Guardrails<br>+ MDM-enforced settings"]
+  C -->|"No (MDM-locked)"| D["Pattern 1: Laptop<br>+ Bedrock Guardrails<br>+ MDM-enforced settings<br>+ sandbox"]
   C -->|"Yes (admin access)"| E["Need server-side controls"]
   E --> F["Are production databases<br>on the same VPC?"]
   F -->|No| G["Pattern 2: Shared EC2<br>SG + IAM + sandbox<br>+ managed settings"]
