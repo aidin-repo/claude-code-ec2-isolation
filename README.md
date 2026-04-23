@@ -369,7 +369,7 @@ The template automatically configures each user's `~/.aws/config` with the SSO p
 
 ### Managed Settings (`/etc/claude-code/managed-settings.json`)
 
-Root-owned, users cannot modify. Loaded before any user settings. Customize in `template.yaml` UserData.
+Root-owned, users cannot modify. Loaded before any user settings and takes highest precedence — including over CLI arguments. On EC2 this file is deployed by CloudFormation UserData; on laptops it's deployed via MDM (Jamf, Intune). See [Claude Code Managed Settings](https://code.claude.com/docs/en/permissions#managed-settings) for full documentation.
 
 ```json
 {
@@ -662,6 +662,7 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 - [Claude Code Sandboxing](https://code.claude.com/docs/en/sandboxing)
 - [Claude Code Security](https://code.claude.com/docs/en/security)
 - [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions)
+- [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions#managed-settings)
 - [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks-guide)
 - [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
 - [Claude Code Devcontainer Reference](https://github.com/anthropics/claude-code/tree/main/.devcontainer)
