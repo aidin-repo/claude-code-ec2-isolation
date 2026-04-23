@@ -264,7 +264,9 @@ graph TD
   D -->|Yes| E["❌ Blocked — hook returns deny"]
   D -->|Bypassed| F{"Layer 3: Sandbox<br>Network restricted?"}
   F -->|Yes| G["❌ Blocked — can't reach DB port"]
-  F -->|Bypassed| H{"Layer 4: Security Group<br>Port 5432 allowed?"}
+  F -->|Bypassed| F2{"Layer 3b: Devcontainer iptables<br>Domain allowlisted?<br>(Pattern 3 only)"}
+  F2 -->|No| G2["❌ Blocked — iptables drops packet"]
+  F2 -->|Bypassed or N/A| H{"Layer 4: Security Group<br>Port 5432 allowed?"}
   H -->|No| I["❌ Blocked — hypervisor drops packet"]
   H -->|Bypassed| J{"Layer 5: IAM Policy<br>rds:* allowed?"}
   J -->|No| K["❌ Blocked — explicit deny"]
@@ -272,6 +274,7 @@ graph TD
   style C fill:#ffcdd2,stroke:#c62828,color:#000
   style E fill:#ffcdd2,stroke:#c62828,color:#000
   style G fill:#ffcdd2,stroke:#c62828,color:#000
+  style G2 fill:#e1bee7,stroke:#7b1fa2,color:#000
   style I fill:#ffcdd2,stroke:#c62828,color:#000
   style K fill:#ffcdd2,stroke:#c62828,color:#000
 ```
