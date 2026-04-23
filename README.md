@@ -572,13 +572,6 @@ block-beta
 | **Per-user containers** | N/A — shared OS | Each developer gets `claude-code-<username>` container |
 | **Complexity** | Low | Medium (Docker, iptables, ipset) |
 
-### When to Use Devcontainer
-
-- Production databases are on the same VPC subnet as the EC2
-- Compliance requires domain-level (not just port-level) network filtering
-- You need container-level filesystem and process isolation between developers
-- Defense industry or specific audit requirements
-
 ### Sandbox Note
 
 On EC2 directly, Claude Code's [bubblewrap sandbox](https://code.claude.com/docs/en/sandboxing) works fully — it creates an OS-level jail restricting filesystem and network access for every bash command.
@@ -697,7 +690,6 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 - [Guidance for Claude Code with Amazon Bedrock](https://github.com/aws-solutions-library-samples/guidance-for-claude-code-with-amazon-bedrock)
 - [Claude Code Sandboxing](https://code.claude.com/docs/en/sandboxing)
 - [Claude Code Security](https://code.claude.com/docs/en/security)
-- [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions)
 - [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions#managed-settings)
 - [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks-guide)
 - [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
