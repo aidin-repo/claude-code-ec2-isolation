@@ -57,7 +57,7 @@ graph TD
 | Pattern | Where Claude Code Runs | Key Controls | Can Dev Bypass? | Cost | Complexity | Best For |
 |---------|----------------------|--------------|-----------------|------|------------|----------|
 | **1. Laptop** | Developer workstation | Managed settings (MDM), sandbox, permission denies, [Bedrock Guardrails](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock) | Yes (with admin) | $0 infra (uses laptop) | Low | General dev teams, low-sensitivity data |
-| **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, hooks, per-user SSO | No | ~$10/dev/mo (30 devs) | Medium | Regulated environments (healthcare, finance) |
+| **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, per-user SSO | No | ~$10/dev/mo (30 devs) | Medium | Regulated environments (healthcare, finance) |
 | **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | ~$10/dev/mo (30 devs) | High | Domain-level outbound filtering, strictest compliance |
 
 Infra costs are the same for Patterns 2 and 3 (~$298/mo for t3.2xlarge + VPC endpoints + EBS). Pattern 3 adds Docker operational complexity but no additional AWS cost. Bedrock model invocation costs are separate and apply to all patterns. Use [Instance Scheduler](https://aws.amazon.com/solutions/implementations/instance-scheduler-on-aws/) to stop EC2 outside business hours (~60% savings).
@@ -116,7 +116,6 @@ graph LR
 |-------|---------|----------------|------------------------|
 | **Security Group** | HTTPS/443 + HTTP/80 outbound only | All DB ports (3306, 5432, 27017, 6379) | No — hypervisor enforced |
 | **IAM Policy** | Deny all database services | `rds:*`, `dynamodb:*`, `redshift:*`, `neptune-db:*`, etc. | No — AWS control plane enforced |
-| **Claude Code Hook** | Pre-hook blocks DB commands | `psql`, `mysql`, `mongosh`, connection strings, `aws rds` CLI | Soft guard — SG + IAM are the hard controls |
 | **OS Isolation** | `hidepid=invisible`, `umask 077`, no sudo | Users can't see each other's processes or files | No — root-owned config |
 | **Sandbox** | Claude Code bubblewrap sandbox (enforced via managed settings) | Filesystem + network isolation for Bash commands | No — `failIfUnavailable: true` in managed settings |
 | **Identity** | IAM Identity Center SSO per-user | Shared credentials | Individual audit trail via CloudTrail |
@@ -262,19 +261,16 @@ Each blocked action is stopped by multiple independent layers:
 graph TD
   A["Developer asks Claude:<br>run psql -h production-db"] --> B{"Layer 1: Managed Settings<br>Bash psql denied?"}
   B -->|Yes| C["❌ Blocked — Claude refuses"]
-  B -->|Bypassed| D{"Layer 2: Pre-Hook<br>psql pattern detected?"}
-  D -->|Yes| E["❌ Blocked — hook returns deny"]
-  D -->|Bypassed| F{"Layer 3: Sandbox<br>Network restricted?"}
+  B -->|Bypassed| F{"Layer 2: Sandbox<br>Network restricted?"}
   F -->|Yes| G["❌ Blocked — can't reach DB port"]
-  F -->|Bypassed| F2{"Layer 3b: Devcontainer iptables<br>Domain allowlisted?<br>(Pattern 3 only)"}
+  F -->|Bypassed| F2{"Layer 2b: Devcontainer iptables<br>Domain allowlisted?<br>(Pattern 3 only)"}
   F2 -->|No| G2["❌ Blocked — iptables drops packet"]
-  F2 -->|Bypassed or N/A| H{"Layer 4: Security Group<br>Port 5432 allowed?"}
+  F2 -->|Bypassed or N/A| H{"Layer 3: Security Group<br>Port 5432 allowed?"}
   H -->|No| I["❌ Blocked — hypervisor drops packet"]
-  H -->|Bypassed| J{"Layer 5: IAM Policy<br>rds:* allowed?"}
+  H -->|Bypassed| J{"Layer 4: IAM Policy<br>rds:* allowed?"}
   J -->|No| K["❌ Blocked — explicit deny"]
 
   style C fill:#ffcdd2,stroke:#c62828,color:#000
-  style E fill:#ffcdd2,stroke:#c62828,color:#000
   style G fill:#ffcdd2,stroke:#c62828,color:#000
   style G2 fill:#e1bee7,stroke:#7b1fa2,color:#000
   style I fill:#ffcdd2,stroke:#c62828,color:#000
@@ -382,11 +378,10 @@ The template automatically configures each user's `~/.aws/config` with the SSO p
 1. **System packages** — bubblewrap, socat, jq, git, ripgrep, AWS CLI v2
 2. **OS hardening** — `hidepid=invisible` on /proc, `umask 077` for all users
 3. **Managed settings** at `/etc/claude-code/managed-settings.json` — see below
-4. **Pre-hook** at `/opt/claude-hooks/block-db-access.sh` — additional command-level blocking for DB clients and connection strings
-5. **SSO profile** at `~/.aws/config` per user + `/usr/local/bin/auth` helper (if `SsoStartUrl` provided)
-6. **OTel identity** at `/etc/profile.d/claude-otel.sh` — injects `developer.name` per user
-7. **Claude Code** installed for each user
-8. **Hourly user sync** from SSM Parameter Store via cron
+4. **SSO profile** at `~/.aws/config` per user + `/usr/local/bin/auth` helper (if `SsoStartUrl` provided)
+5. **OTel identity** at `/etc/profile.d/claude-otel.sh` — injects `developer.name` per user
+6. **Claude Code** installed for each user
+7. **Hourly user sync** from SSM Parameter Store via cron
 
 ### Managed Settings (`/etc/claude-code/managed-settings.json`)
 
@@ -408,7 +403,6 @@ Root-owned, users cannot modify. Loaded before any user settings and takes highe
   "model": "us.anthropic.claude-sonnet-4-6",
   "disableBypassPermissionsMode": "disable",
   "allowManagedPermissionRulesOnly": true,
-  "allowManagedHooksOnly": true,
   "allowManagedMcpServersOnly": true,
   "permissions": {
     "deny": [
@@ -449,37 +443,9 @@ Root-owned, users cannot modify. Loaded before any user settings and takes highe
 |---------|-------------|
 | `disableBypassPermissionsMode` | Prevents `--dangerously-skip-permissions` flag |
 | `allowManagedPermissionRulesOnly` | Users can't add their own allow/deny rules |
-| `allowManagedHooksOnly` | Users can't override or add hooks |
 | `allowManagedMcpServersOnly` | Users can't add MCP servers (prevents data exfiltration) |
 | `sandbox.failIfUnavailable` | Claude Code refuses to run if sandbox can't start |
 | `sandbox.network.allowManagedDomainsOnly` | Sandbox blocks all domains except the allowlist |
-
-### Per-User Settings (`~/.claude/settings.json`)
-
-Deployed to each user's home directory. References the pre-hook for DB command blocking.
-
-```json
-{
-  "env": {
-    "CLAUDE_CODE_USE_BEDROCK": "1",
-    "AWS_REGION": "us-east-1"
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/opt/claude-hooks/block-db-access.sh",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
-  }
-}
-```
 
 ## User Management
 
@@ -552,7 +518,6 @@ block-beta
               columns 1
               MS["Managed Settings (hardened, org-enforced)"]
               SB["Sandbox / bubblewrap (filesystem + network)"]
-              HK["Pre-hooks (block DB commands)"]
             end
           end
         end
@@ -680,7 +645,6 @@ auth                                    # SSO device code login
 | `auth` timeout | Verify laptop can reach SSO domain; check permission set assignment |
 | Claude Code hangs | Credentials expired — run `auth` again, restart `claude` |
 | Access Denied on Bedrock | `aws sts get-caller-identity --profile claudecode-sso` — verify model enabled in Bedrock console |
-| Hook not blocking | Expected in terminal — hooks only apply inside Claude Code. SG + IAM are the hard controls. |
 
 ## Repository Contents
 
@@ -697,7 +661,6 @@ auth                                    # SSO device code login
 - [Claude Code Sandboxing](https://code.claude.com/docs/en/sandboxing)
 - [Claude Code Security](https://code.claude.com/docs/en/security)
 - [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions#managed-settings)
-- [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks-guide)
 - [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
 - [Claude Code Devcontainer Reference](https://github.com/anthropics/claude-code/tree/main/.devcontainer)
 - [Bedrock Guardrails IAM Policy-Based Enforcement](https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-guardrails-announces-iam-policy-based-enforcement-to-deliver-safe-ai-interactions/)
