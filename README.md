@@ -40,13 +40,13 @@ Not every team needs EC2 isolation. Use this decision tree to pick the right pat
 
 ```mermaid
 graph TD
-  A["Does your team handle\nPHI/PII/regulated data?"] -->|No| B["Pattern 1: Laptop\nManaged settings + sandbox"]
-  A -->|Yes| C["Can developers disable\ncontrols on their laptops?"]
-  C -->|"No (MDM-locked)"| D["Pattern 1: Laptop\n+ Bedrock Guardrails\n+ MDM-enforced settings"]
+  A["Does your team handle<br>PHI/PII/regulated data?"] -->|No| B["Pattern 1: Laptop<br>Managed settings + sandbox"]
+  A -->|Yes| C["Can developers disable<br>controls on their laptops?"]
+  C -->|"No (MDM-locked)"| D["Pattern 1: Laptop<br>+ Bedrock Guardrails<br>+ MDM-enforced settings"]
   C -->|"Yes (admin access)"| E["Need server-side controls"]
-  E --> F["Are production databases\non the same VPC?"]
-  F -->|No| G["Pattern 2: Shared EC2\nSG + IAM + managed settings"]
-  F -->|Yes| H["Pattern 3: EC2 + Devcontainer\n+ iptables domain allowlist"]
+  E --> F["Are production databases<br>on the same VPC?"]
+  F -->|No| G["Pattern 2: Shared EC2<br>SG + IAM + managed settings"]
+  F -->|Yes| H["Pattern 3: EC2 + Devcontainer<br>+ iptables domain allowlist"]
 
   style B fill:#e8f5e9,stroke:#2e7d32,color:#000
   style D fill:#e8f5e9,stroke:#2e7d32,color:#000
@@ -82,30 +82,30 @@ Developers connect to a shared EC2 instance via SSM Session Manager (no SSH, no 
 graph LR
   subgraph Laptop["Developer Laptop"]
     Terminal["🖥️ Terminal"]
-    Browser["🌐 Browser\n(SSO auth)"]
+    Browser["🌐 Browser<br>(SSO auth)"]
   end
 
   subgraph AWS["AWS Account"]
     subgraph VPC["VPC (HTTPS outbound only)"]
       subgraph EC2["EC2 (Ubuntu 24.04)"]
-        User1["👤 user1\nClaude Code"]
-        User2["👤 user2\nClaude Code"]
+        User1["👤 user1<br>Claude Code"]
+        User2["👤 user2<br>Claude Code"]
         UserN["👤 ..."]
       end
       subgraph Endpoints["VPC Endpoints (PrivateLink)"]
         BR["bedrock-runtime"]
-        SSM["ssm / ssmmessages\nec2messages"]
+        SSM["ssm / ssmmessages<br>ec2messages"]
         STS["sts"]
         S3["s3 (gateway)"]
       end
     end
-    IDC["IAM Identity Center\nBedrockClaudeCode\npermission set"]
+    IDC["IAM Identity Center<br>BedrockClaudeCode<br>permission set"]
   end
 
-  Terminal -- "SSM Session\n(no SSH, no inbound)" --> EC2
+  Terminal -- "SSM Session<br>(no SSH, no inbound)" --> EC2
   EC2 -- "device code flow" --> Browser
   User1 & User2 & UserN --> Endpoints
-  IDC -. "bedrock:Invoke*\ndeny all databases" .-> EC2
+  IDC -. "bedrock:Invoke*<br>deny all databases" .-> EC2
 ```
 
 ## Security Layers (Defense-in-Depth)
@@ -256,15 +256,15 @@ Each blocked action is stopped by multiple independent layers:
 
 ```mermaid
 graph TD
-  A["Developer asks Claude:\nrun psql -h production-db"] --> B{"Layer 1: Managed Settings\nBash(psql *) denied?"}
+  A["Developer asks Claude:<br>run psql -h production-db"] --> B{"Layer 1: Managed Settings<br>Bash psql denied?"}
   B -->|Yes| C["❌ Blocked — Claude refuses"]
-  B -->|Bypassed| D{"Layer 2: Pre-Hook\npsql pattern detected?"}
+  B -->|Bypassed| D{"Layer 2: Pre-Hook<br>psql pattern detected?"}
   D -->|Yes| E["❌ Blocked — hook returns deny"]
-  D -->|Bypassed| F{"Layer 3: Sandbox\nNetwork restricted?"}
+  D -->|Bypassed| F{"Layer 3: Sandbox<br>Network restricted?"}
   F -->|Yes| G["❌ Blocked — can't reach DB port"]
-  F -->|Bypassed| H{"Layer 4: Security Group\nPort 5432 allowed?"}
+  F -->|Bypassed| H{"Layer 4: Security Group<br>Port 5432 allowed?"}
   H -->|No| I["❌ Blocked — hypervisor drops packet"]
-  H -->|Bypassed| J{"Layer 5: IAM Policy\nrds:* allowed?"}
+  H -->|Bypassed| J{"Layer 5: IAM Policy<br>rds:* allowed?"}
   J -->|No| K["❌ Blocked — explicit deny"]
 
   style C fill:#ffcdd2,stroke:#c62828,color:#000
