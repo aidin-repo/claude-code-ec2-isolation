@@ -34,6 +34,46 @@ Managed settings protect against *accidental* override, not *intentional* circum
 
 **The key insight:** managed settings are an *administrative* control. Security groups and IAM policies are *technical* controls. In regulated environments, you need technical controls that hold regardless of the user's local permissions.
 
+## Choosing a Deployment Pattern
+
+Not every team needs EC2 isolation. Use this decision tree to pick the right pattern:
+
+```mermaid
+graph TD
+  A["Does your team handle\nPHI/PII/regulated data?"] -->|No| B["Pattern 1: Laptop\nManaged settings + sandbox"]
+  A -->|Yes| C["Can developers disable\ncontrols on their laptops?"]
+  C -->|"No (MDM-locked)"| D["Pattern 1: Laptop\n+ Bedrock Guardrails\n+ MDM-enforced settings"]
+  C -->|"Yes (admin access)"| E["Need server-side controls"]
+  E --> F["Are production databases\non the same VPC?"]
+  F -->|No| G["Pattern 2: Shared EC2\nSG + IAM + managed settings"]
+  F -->|Yes| H["Pattern 3: EC2 + Devcontainer\n+ iptables domain allowlist"]
+
+  style B fill:#e8f5e9,stroke:#2e7d32,color:#000
+  style D fill:#e8f5e9,stroke:#2e7d32,color:#000
+  style G fill:#e3f2fd,stroke:#1565c0,color:#000
+  style H fill:#f3e5f5,stroke:#7b1fa2,color:#000
+```
+
+| Pattern | Where Claude Code Runs | Key Controls | Can Dev Bypass? | Best For |
+|---------|----------------------|--------------|-----------------|----------|
+| **1. Laptop** | Developer workstation | Managed settings (MDM), sandbox, permission denies, [Bedrock Guardrails](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock) | Yes (with admin) | General dev teams, low-sensitivity data |
+| **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, hooks, per-user SSO | No | Regulated environments (healthcare, finance) |
+| **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | Prod databases on same VPC, strictest compliance |
+
+**This repo implements Patterns 2 and 3.** For Pattern 1 (laptop controls), see [Protecting Sensitive Data When Using Claude Code on Amazon Bedrock](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock).
+
+### What Each Pattern Protects Against
+
+| Threat | Laptop (MDM) | Shared EC2 | EC2 + Devcontainer |
+|--------|-------------|-----------|-------------------|
+| Developer reads sensitive files | Sandbox `denyRead` + `Read()` denies | No sensitive files on EC2 | Container filesystem isolation |
+| Developer runs `psql` to prod DB | Permission deny rule | Permission deny + SG blocks port + IAM denies | All of EC2 + iptables drops traffic |
+| Developer runs `curl` to exfiltrate data | Permission deny rule | Permission deny + sandbox network | Permission deny + sandbox + iptables allowlist |
+| Developer disables managed settings | Can do (with admin) | Cannot — root-owned, no sudo | Cannot — baked into container image |
+| Developer adds rogue MCP server | `allowManagedMcpServersOnly` | Same | Same |
+| Developer uses `--dangerously-skip-permissions` | `disableBypassPermissionsMode` | Same | Same |
+| Lateral movement to other HTTPS services | Sandbox `allowedDomains` | SG allows all HTTPS | iptables allows only allowlisted domains |
+
 ## How It Works
 
 Developers connect to a shared EC2 instance via SSM Session Manager (no SSH, no inbound ports). Each developer gets their own Linux user account with isolated home directory, Claude Code installation, and AWS SSO credentials. Four independent security layers prevent access to production databases — even if one layer is bypassed, the others hold.
@@ -619,6 +659,10 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 - [Protecting Sensitive Data When Using Claude Code on Amazon Bedrock](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock)
 - [Claude Code Deployment Patterns with Amazon Bedrock](https://aws.amazon.com/blogs/machine-learning/claude-code-deployment-patterns-and-best-practices-with-amazon-bedrock/)
 - [Guidance for Claude Code with Amazon Bedrock](https://github.com/aws-solutions-library-samples/guidance-for-claude-code-with-amazon-bedrock)
-- [Claude Code Hooks Documentation](https://docs.anthropic.com/en/docs/claude-code/hooks)
+- [Claude Code Sandboxing](https://code.claude.com/docs/en/sandboxing)
+- [Claude Code Security](https://code.claude.com/docs/en/security)
+- [Claude Code Permissions — Managed Settings](https://code.claude.com/docs/en/permissions)
+- [Claude Code Hooks Documentation](https://code.claude.com/docs/en/hooks-guide)
 - [Claude Code Bedrock Documentation](https://code.claude.com/docs/en/amazon-bedrock)
 - [Claude Code Devcontainer Reference](https://github.com/anthropics/claude-code/tree/main/.devcontainer)
+- [Bedrock Guardrails IAM Policy-Based Enforcement](https://aws.amazon.com/blogs/machine-learning/amazon-bedrock-guardrails-announces-iam-policy-based-enforcement-to-deliver-safe-ai-interactions/)
