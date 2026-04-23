@@ -76,6 +76,7 @@ graph LR
 | **IAM Policy** | Deny all database services | `rds:*`, `dynamodb:*`, `redshift:*`, `neptune-db:*`, etc. | No — AWS control plane enforced |
 | **Claude Code Hook** | Pre-hook blocks DB commands | `psql`, `mysql`, `mongosh`, connection strings, `aws rds` CLI | Soft guard — SG + IAM are the hard controls |
 | **OS Isolation** | `hidepid=invisible`, `umask 077`, no sudo | Users can't see each other's processes or files | No — root-owned config |
+| **Sandbox** | Claude Code bubblewrap sandbox (enforced via managed settings) | Filesystem + network isolation for Bash commands | No — `failIfUnavailable: true` in managed settings |
 | **Identity** | IAM Identity Center SSO per-user | Shared credentials | Individual audit trail via CloudTrail |
 
 ## Quick Start

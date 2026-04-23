@@ -414,6 +414,10 @@ Resources:
             },
             "permissions": {
               "deny": ["Bash(sudo *)"]
+            },
+            "sandbox": {
+              "enabled": true,
+              "failIfUnavailable": true
             }
           }
           SETTINGS
@@ -662,6 +666,10 @@ Resources:
             },
             "permissions": {
               "deny": ["Bash(sudo *)"]
+            },
+            "sandbox": {
+              "enabled": true,
+              "failIfUnavailable": true
             }
           }
           DEVMANAGED
