@@ -687,7 +687,7 @@ Resources:
           FIREWALL
 
             # Reuse host managed settings for the container (remove AWS_PROFILE since container uses mounted creds)
-            cat /etc/claude-code/managed-settings.json | sed 's/"AWS_PROFILE": "claudecode-sso"//' | sed 's/,\s*,/,/' > /opt/claude-devcontainer/.devcontainer/managed-settings.json
+            python3 -c "import json; f=open('/etc/claude-code/managed-settings.json'); s=json.load(f); f.close(); s.get('env',{}).pop('AWS_PROFILE',None); f=open('/opt/claude-devcontainer/.devcontainer/managed-settings.json','w'); json.dump(s,f,indent=2); f.close()"
 
             cp /opt/claude-hooks/block-db-access.sh /opt/claude-devcontainer/.devcontainer/block-db-access.sh
 
