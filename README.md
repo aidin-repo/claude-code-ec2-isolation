@@ -54,11 +54,13 @@ graph TD
   style H fill:#f3e5f5,stroke:#7b1fa2,color:#000
 ```
 
-| Pattern | Where Claude Code Runs | Key Controls | Can Dev Bypass? | Best For |
-|---------|----------------------|--------------|-----------------|----------|
-| **1. Laptop** | Developer workstation | Managed settings (MDM), sandbox, permission denies, [Bedrock Guardrails](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock) | Yes (with admin) | General dev teams, low-sensitivity data |
-| **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, hooks, per-user SSO | No | Regulated environments (healthcare, finance) |
-| **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | Domain-level outbound filtering, strictest compliance |
+| Pattern | Where Claude Code Runs | Key Controls | Can Dev Bypass? | Cost | Complexity | Best For |
+|---------|----------------------|--------------|-----------------|------|------------|----------|
+| **1. Laptop** | Developer workstation | Managed settings (MDM), sandbox, permission denies, [Bedrock Guardrails](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock) | Yes (with admin) | $0 infra (uses laptop) | Low | General dev teams, low-sensitivity data |
+| **2. Shared EC2** | EC2 via SSM | Security groups, IAM deny, root-owned managed settings, sandbox, hooks, per-user SSO | No | ~$10/dev/mo (30 devs) | Medium | Regulated environments (healthcare, finance) |
+| **3. EC2 + Devcontainer** | Docker on EC2 | Everything from Pattern 2 + iptables domain allowlist + container isolation | No | ~$10/dev/mo (30 devs) | High | Domain-level outbound filtering, strictest compliance |
+
+Infra costs are the same for Patterns 2 and 3 (~$298/mo for t3.2xlarge + VPC endpoints + EBS). Pattern 3 adds Docker operational complexity but no additional AWS cost. Bedrock model invocation costs are separate and apply to all patterns. Use [Instance Scheduler](https://aws.amazon.com/solutions/implementations/instance-scheduler-on-aws/) to stop EC2 outside business hours (~60% savings).
 
 **This repo implements Patterns 2 and 3.** For Pattern 1 (laptop controls), see [Protecting Sensitive Data When Using Claude Code on Amazon Bedrock](https://builder.aws.com/content/3BDrMDCZK6WVhQEA2amur9zj51q/protecting-sensitive-data-when-using-claude-code-on-amazon-bedrock).
 
@@ -655,7 +657,7 @@ auth                                    # SSO device code login
 /opt/claude-devcontainer/launch.sh      # starts per-user container + firewall + Claude Code
 ```
 
-## Cost
+## Cost Breakdown
 
 | Resource | Monthly Cost |
 |----------|-------------|
@@ -663,8 +665,6 @@ auth                                    # SSO device code login
 | VPC Endpoints (5 interface + 1 gateway) | ~$37 |
 | EBS 200GB gp3 | ~$16 |
 | **Total** | **~$298/mo (~$10/dev for 30 devs)** |
-
-Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amazon.com/solutions/implementations/instance-scheduler-on-aws/) to stop EC2 outside business hours (~60% savings).
 
 ## Troubleshooting
 
