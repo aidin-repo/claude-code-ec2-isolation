@@ -142,6 +142,9 @@ auth
 
 # Launch Claude Code
 claude
+
+# Or if devcontainer is enabled:
+# /opt/claude-devcontainer/launch.sh
 ```
 
 ### 3. Verify Security Controls
@@ -208,7 +211,8 @@ aws sso-admin put-inline-policy-to-permission-set \
         "Action": [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream",
-          "bedrock:ListInferenceProfiles"
+          "bedrock:ListInferenceProfiles",
+          "bedrock:GetInferenceProfile"
         ],
         "Resource": [
           "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
