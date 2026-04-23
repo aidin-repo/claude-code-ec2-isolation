@@ -309,7 +309,54 @@ aws ssm send-command \
 
 ## Optional: Devcontainer Isolation
 
-For maximum isolation, run Claude Code inside a Docker container with an iptables-based domain allowlist. Enable at deploy time by passing `EnableDevcontainer=true`:
+For maximum isolation, run Claude Code inside a Docker container with an iptables-based domain allowlist. This adds a network isolation layer on top of security groups and IAM — filtering by domain, not just port.
+
+### EC2-Only vs Devcontainer
+
+| Capability | EC2-Only | EC2 + Devcontainer |
+|------------|----------|-------------------|
+| **Network filtering** | Port-based (SG: HTTPS only) | Port-based + domain allowlist (iptables) |
+| **Database port blocking** | ✅ SG blocks 3306, 5432, etc. | ✅ SG + container drops all non-allowlisted traffic |
+| **Lateral movement** | Possible to any HTTPS endpoint | Blocked — only Bedrock, SSM, STS, npm, Anthropic API |
+| **Filesystem isolation** | Per-user home dirs (700) | Container filesystem + `/workspace` mount only |
+| **Process isolation** | `hidepid=invisible` (can't see others) | Full container boundary |
+| **Credential isolation** | Per-user SSO in `~/.aws/sso/cache/` | SSO creds staged read-only into container |
+| **Per-user containers** | N/A — shared OS | Each developer gets `claude-code-<username>` container |
+| **Complexity** | Low | Medium (Docker, iptables, ipset) |
+
+### When to Use Devcontainer
+
+- Production databases are on the same VPC subnet as the EC2
+- Compliance requires domain-level (not just port-level) network filtering
+- You need container-level filesystem and process isolation between developers
+- Defense industry or specific audit requirements
+
+### How It Works
+
+1. **Deploy** with `EnableDevcontainer=true` — installs Docker, builds the container image
+2. **Developer runs** `/opt/claude-devcontainer/launch.sh` — creates a per-user container (`claude-code-<username>`)
+3. **Launch script** stages `~/.aws` credentials into a readable temp dir, mounts it into the container
+4. **Firewall initializes** — resolves allowlisted domains to IPs, sets default-DROP, only permits allowlisted traffic
+5. **Claude Code starts** inside the container using the developer's SSO identity
+
+### Allowed Domains (Firewall Allowlist)
+
+| Domain | Purpose |
+|--------|---------|
+| `bedrock-runtime.*.amazonaws.com` | Bedrock inference (cross-region) |
+| `sts.*.amazonaws.com` | AWS credential resolution |
+| `ssm.*.amazonaws.com` | SSM connectivity |
+| `oidc.*.amazonaws.com` | SSO token refresh |
+| `portal.sso.*.amazonaws.com` | SSO portal |
+| `api.anthropic.com` | Claude Code telemetry |
+| `registry.npmjs.org` | npm packages |
+| `sentry.io`, `statsig.anthropic.com` | Claude Code analytics |
+| `169.254.169.254` | EC2 instance metadata |
+| `10.0.0.0/16` | VPC endpoints (adjust to your VPC CIDR) |
+
+Everything else is dropped with `icmp-admin-prohibited`.
+
+### Deploy
 
 ```bash
 aws cloudformation deploy \
@@ -322,12 +369,13 @@ aws cloudformation deploy \
     EnableDevcontainer=true
 ```
 
-This installs Docker and builds a Claude Code container with:
-- Iptables default-DROP policy with allowlist (Bedrock, SSM, STS, npm, Anthropic API)
-- Non-root `node` user inside the container
-- Isolated `/workspace` mount
+### Launch
 
-Launch with: `/opt/claude-devcontainer/launch.sh`
+```bash
+sudo su - jane.doe
+auth                                    # SSO device code login
+/opt/claude-devcontainer/launch.sh      # starts per-user container + firewall + Claude Code
+```
 
 ## Cost
 
