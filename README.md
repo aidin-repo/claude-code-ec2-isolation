@@ -119,6 +119,20 @@ graph LR
 | **Sandbox** | Claude Code bubblewrap sandbox (enforced via managed settings) | Filesystem + network isolation for Bash commands | No — `failIfUnavailable: true` in managed settings |
 | **Identity** | IAM Identity Center SSO per-user | Shared credentials | Individual audit trail via CloudTrail |
 
+### Managed Settings vs Sandbox
+
+These two controls are complementary — managed settings are broader, sandbox is deeper:
+
+| | Managed Settings | Bubblewrap Sandbox |
+|--|-----------------|-------------------|
+| **What it is** | Config file (JSON) | OS kernel jail |
+| **Enforced by** | Claude Code application | Linux kernel |
+| **Scope** | All Claude Code tools (Read, Write, Bash, MCP) | Bash commands and their child processes only |
+| **Can the application bypass it?** | No (`allowManagedPermissionRulesOnly`) | No — kernel-level |
+| **Can a developer bypass it?** | Not on EC2 (root-owned, no sudo) | Not on EC2 (`failIfUnavailable: true`) |
+
+Managed settings catch blocked commands **before execution** — Claude Code reads the deny rules and refuses. The sandbox catches anything that slips through at the **kernel level** — even if a command somehow runs, the kernel blocks unauthorized filesystem and network access.
+
 ## Quick Start
 
 ### Prerequisites
