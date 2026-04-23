@@ -176,6 +176,7 @@ su - jane.doe -c "ls /home/john.smith/"                     # Should return Perm
 | `KeyPairName` | No | *(empty)* | SSH key pair — SSM is primary access, leave empty to skip |
 | `RouteTableId` | No | *(empty)* | Route table for S3 gateway endpoint — only needed with existing VPC |
 | `OtelEndpoint` | No | *(empty)* | OpenTelemetry collector URL — leave empty to skip telemetry |
+| `EnableDevcontainer` | No | `false` | Set to `true` to install Docker and build the Claude Code devcontainer with iptables firewall |
 | `AmiId` | No | Ubuntu 24.04 (auto) | AMI auto-resolved from AWS SSM public parameter |
 
 
@@ -308,12 +309,25 @@ aws ssm send-command \
 
 ## Optional: Devcontainer Isolation
 
-For maximum isolation, run Claude Code inside Docker containers with an iptables-based domain allowlist. See `setup-devcontainer.sh`.
+For maximum isolation, run Claude Code inside a Docker container with an iptables-based domain allowlist. Enable at deploy time by passing `EnableDevcontainer=true`:
 
 ```bash
-sudo bash setup-devcontainer.sh
-/opt/claude-devcontainer/launch.sh
+aws cloudformation deploy \
+  --template-file template.yaml \
+  --stack-name claude-code-ec2 \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    DeveloperUsers=jane.doe \
+    SsoStartUrl=https://your-org.awsapps.com/start \
+    EnableDevcontainer=true
 ```
+
+This installs Docker and builds a Claude Code container with:
+- Iptables default-DROP policy with allowlist (Bedrock, SSM, STS, npm, Anthropic API)
+- Non-root `node` user inside the container
+- Isolated `/workspace` mount
+
+Launch with: `/opt/claude-devcontainer/launch.sh`
 
 ## Cost
 
@@ -340,9 +354,8 @@ Bedrock invocation costs are separate. Use [Instance Scheduler](https://aws.amaz
 
 | File | Purpose |
 |------|---------|
-| `template.yaml` | CloudFormation template — everything in one file |
+| `template.yaml` | CloudFormation template — everything in one file (includes optional devcontainer) |
 | `connect-sso.sh` | Connection helper script for SSM + SSO |
-| `setup-devcontainer.sh` | Optional: Docker-based isolation with iptables firewall |
 
 ## References
 

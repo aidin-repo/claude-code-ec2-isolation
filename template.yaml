@@ -43,6 +43,11 @@ Parameters:
     Type: String
     Default: user1,user2
     Description: Comma-separated list of developer Linux usernames to create
+  EnableDevcontainer:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Install Docker and build the Claude Code devcontainer with iptables domain allowlist (adds ~3 minutes to setup)
 
 Conditions:
   HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
@@ -197,9 +202,9 @@ Resources:
                   - bedrock:InvokeModelWithResponseStream
                   - bedrock:ListInferenceProfiles
                 Resource:
-                  - !Sub arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-*
-                  - !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:inference-profile/*
-                  - !Sub arn:aws:bedrock:${AWS::Region}:${AWS::AccountId}:application-inference-profile/*
+                  - !Sub arn:aws:bedrock:*::foundation-model/anthropic.claude-*
+                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*
+                  - !Sub arn:aws:bedrock:*:${AWS::AccountId}:application-inference-profile/*
               - Sid: AllowSSMParameterRead
                 Effect: Allow
                 Action:
@@ -556,6 +561,210 @@ Resources:
           SYNCSCRIPT
           chmod +x /opt/scripts/sync-users.sh
           echo "0 * * * * root /opt/scripts/sync-users.sh >> /var/log/claude-code-sync.log 2>&1" > /etc/cron.d/claude-code-sync
+
+          # ============================================================
+          # Optional: Devcontainer setup (iptables domain allowlist)
+          # ============================================================
+          ENABLE_DEVCONTAINER="${EnableDevcontainer}"
+          if [ "$ENABLE_DEVCONTAINER" = "true" ]; then
+            echo "=== Installing Docker ==="
+            apt-get install -y ca-certificates gnupg
+            install -m 0755 -d /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+            apt-get update -y
+            apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            systemctl enable docker
+            systemctl start docker
+
+            echo "=== Creating Devcontainer Files ==="
+            mkdir -p /opt/claude-devcontainer/.devcontainer
+
+            cat > /opt/claude-devcontainer/.devcontainer/Dockerfile << 'DOCKERFILE'
+          FROM node:20
+          ARG CLAUDE_CODE_VERSION=latest
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+            less git procps sudo unzip gnupg2 \
+            iptables ipset iproute2 dnsutils jq \
+            bubblewrap socat curl \
+            && apt-get clean && rm -rf /var/lib/apt/lists/*
+          RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+            && unzip -q /tmp/awscliv2.zip -d /tmp \
+            && /tmp/aws/install \
+            && rm -rf /tmp/aws /tmp/awscliv2.zip
+          RUN mkdir -p /workspace /home/node/.claude /usr/local/share/npm-global && \
+            chown -R node:node /workspace /home/node/.claude /usr/local/share/npm-global
+          WORKDIR /workspace
+          USER node
+          ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+          ENV PATH=$PATH:/usr/local/share/npm-global/bin
+          RUN npm install -g @anthropic-ai/claude-code@latest
+          COPY init-firewall.sh /usr/local/bin/
+          USER root
+          RUN chmod +x /usr/local/bin/init-firewall.sh && \
+            echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
+            chmod 0440 /etc/sudoers.d/node-firewall
+          RUN mkdir -p /etc/claude-code /opt/claude-hooks
+          COPY managed-settings.json /etc/claude-code/managed-settings.json
+          COPY block-db-access.sh /opt/claude-hooks/block-db-access.sh
+          RUN chmod +x /opt/claude-hooks/block-db-access.sh
+          USER node
+          DOCKERFILE
+
+            cat > /opt/claude-devcontainer/.devcontainer/init-firewall.sh << 'FIREWALL'
+          #!/bin/bash
+          set -euo pipefail
+          REGION_VAR=$(curl -s --connect-timeout 2 http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || echo "us-east-1")
+
+          # Flush filter table only — preserving NAT keeps Docker's embedded DNS working
+          iptables -F
+          iptables -X
+          ipset destroy allowed-domains 2>/dev/null || true
+
+          # Allow Docker's embedded DNS resolver (127.0.0.11) before any other rules
+          iptables -A OUTPUT -d 127.0.0.11 -j ACCEPT
+          iptables -A INPUT -s 127.0.0.11 -j ACCEPT
+
+          iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+          iptables -A INPUT -p udp --sport 53 -j ACCEPT
+          iptables -A INPUT -i lo -j ACCEPT
+          iptables -A OUTPUT -o lo -j ACCEPT
+          ipset create allowed-domains hash:net
+          for domain in "api.anthropic.com" "bedrock-runtime.$REGION_VAR.amazonaws.com" "bedrock-runtime.us-east-2.amazonaws.com" "bedrock-runtime.us-west-2.amazonaws.com" "sts.$REGION_VAR.amazonaws.com" "ssm.$REGION_VAR.amazonaws.com" "oidc.$REGION_VAR.amazonaws.com" "portal.sso.$REGION_VAR.amazonaws.com" "registry.npmjs.org" "sentry.io" "statsig.anthropic.com" "statsig.com"; do
+            ips=$(dig +noall +answer A "$domain" 2>/dev/null | awk '$4 == "A" {print $5}')
+            while read -r ip; do
+              [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] && ipset add allowed-domains "$ip" 2>/dev/null || true
+            done <<< "$ips"
+          done
+          iptables -A OUTPUT -d 169.254.169.254/32 -j ACCEPT
+          ipset add allowed-domains 169.254.169.254 2>/dev/null || true
+          ipset add allowed-domains 10.0.0.0/16 2>/dev/null || true
+          iptables -P INPUT DROP
+          iptables -P FORWARD DROP
+          iptables -P OUTPUT DROP
+          iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+          iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+          iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
+          iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
+          echo "Firewall configured. Allowed IPs: $(ipset list allowed-domains | grep -c '^[0-9]')"
+          FIREWALL
+
+            cat > /opt/claude-devcontainer/.devcontainer/managed-settings.json << DEVMANAGED
+          {
+            "env": {
+              "CLAUDE_CODE_USE_BEDROCK": "1",
+              "AWS_REGION": "${AWS::Region}",
+              "DISABLE_AUTOUPDATER": "1",
+              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+              "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+              "AWS_SDK_UA_APP_ID": "ClaudeCode"
+            },
+            "permissions": {
+              "deny": ["Bash(sudo *)"]
+            }
+          }
+          DEVMANAGED
+
+            cp /opt/claude-hooks/block-db-access.sh /opt/claude-devcontainer/.devcontainer/block-db-access.sh
+
+            cat > /opt/claude-devcontainer/docker-compose.yml << COMPOSE
+          services:
+            claude-code:
+              build:
+                context: .devcontainer
+                dockerfile: Dockerfile
+              container_name: claude-code-dev
+              cap_add:
+                - NET_ADMIN
+                - NET_RAW
+              environment:
+                - CLAUDE_CODE_USE_BEDROCK=1
+                - AWS_REGION=${AWS::Region}
+                - NODE_OPTIONS=--max-old-space-size=4096
+                - AWS_EC2_METADATA_SERVICE_ENDPOINT=http://169.254.169.254
+              volumes:
+                - claude-config:/home/node/.claude
+                - /workspace:/workspace
+              working_dir: /workspace
+              extra_hosts:
+                - "169.254.169.254:host-gateway"
+              stdin_open: true
+              tty: true
+          volumes:
+            claude-config:
+          COMPOSE
+
+            cat > /opt/claude-devcontainer/launch.sh << 'LAUNCH'
+          #!/bin/bash
+          # Launch Claude Code in a per-user container with SSO credentials mounted
+          PROJECT_DIR="$1"
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="/workspace"
+          fi
+          USER_NAME=$(whoami)
+          CONTAINER_NAME="claude-code-$USER_NAME"
+          IMAGE_NAME="claude-devcontainer-claude-code:latest"
+
+          # Build image if not present
+          if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+            cd /opt/claude-devcontainer
+            docker compose build
+          fi
+
+          # Attach to existing container, or create new one
+          if docker ps --format '{{.Names}}' | grep -q "^$CONTAINER_NAME$"; then
+            docker exec -it -u node "$CONTAINER_NAME" bash -c "cd $PROJECT_DIR && claude"
+          else
+            # Clean up stopped container with same name
+            docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+            # Stage AWS config + SSO cache to a location readable by the container's node user
+            # We copy rather than bind-mount to avoid UID/GID mismatches
+            STAGE_DIR="/tmp/claude-aws-$USER_NAME"
+            rm -rf "$STAGE_DIR"
+            mkdir -p "$STAGE_DIR"
+            cp -r "$HOME/.aws/." "$STAGE_DIR/" 2>/dev/null || true
+            chmod -R a+rX "$STAGE_DIR"
+
+            # Ensure workspace dir exists
+            mkdir -p "$HOME/workspace"
+
+            # Start per-user container with SSO creds mounted
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --cap-add=NET_ADMIN --cap-add=NET_RAW \
+              -e CLAUDE_CODE_USE_BEDROCK=1 \
+              -e AWS_REGION \
+              -e AWS_PROFILE=claudecode-sso \
+              -e NODE_OPTIONS=--max-old-space-size=4096 \
+              -v "$STAGE_DIR:/home/node/.aws:ro" \
+              -v "$HOME/workspace:/workspace" \
+              --add-host=169.254.169.254:host-gateway \
+              "$IMAGE_NAME" \
+              sleep infinity
+
+            sleep 2
+            docker exec --user root "$CONTAINER_NAME" /usr/local/bin/init-firewall.sh
+            docker exec -it -u node "$CONTAINER_NAME" bash -c "cd $PROJECT_DIR && claude"
+          fi
+          LAUNCH
+            chmod +x /opt/claude-devcontainer/launch.sh
+
+            echo "=== Building Devcontainer Image ==="
+            cd /opt/claude-devcontainer
+            docker compose build 2>&1 | tail -5 || echo "Build failed — run /opt/claude-devcontainer/launch.sh to retry"
+
+            # Add developer users to docker group so they can run the launch script
+            # WARNING: docker group = root-equivalent on the host. Acceptable for POC;
+            # for production, use a sudoers entry for only the launch script instead.
+            for USER in $(echo "${DeveloperUsers}" | tr ',' ' '); do
+              USER=$(echo "$USER" | xargs)
+              usermod -aG docker "$USER" 2>/dev/null || true
+            done
+
+            echo "Devcontainer ready. Launch with: /opt/claude-devcontainer/launch.sh"
+          fi
 
           echo "=== Claude Code EC2 Setup Complete ==="
 
