@@ -568,9 +568,10 @@ block-beta
 
 | Capability | EC2-Only | EC2 + Devcontainer |
 |------------|----------|-------------------|
-| **Network filtering** | Port-based (SG: HTTPS only) | Port-based + domain allowlist (iptables) |
+| **Network filtering** | Port-based (SG) + domain-based for Bash only (sandbox) | Port-based (SG) + domain-based for ALL traffic (iptables) |
 | **Database port blocking** | ✅ SG blocks 3306, 5432, etc. | ✅ SG + container drops all non-allowlisted traffic |
-| **Lateral movement** | Possible to any HTTPS endpoint | Blocked — only Bedrock, SSM, STS, npm, Anthropic API |
+| **Lateral movement via Bash** | Blocked by sandbox `allowedDomains` | Blocked by sandbox + iptables |
+| **Lateral movement via Claude Code process** | ⚠️ Not blocked — Node.js runs outside sandbox | ✅ Blocked — iptables covers all container traffic |
 | **Filesystem isolation** | Per-user home dirs (700) | Container filesystem + `/workspace` mount only |
 | **Process isolation** | `hidepid=invisible` (can't see others) | Full container boundary |
 | **Credential isolation** | Per-user SSO in `~/.aws/sso/cache/` | SSO creds staged read-only into container |
