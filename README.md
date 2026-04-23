@@ -320,20 +320,105 @@ The template automatically configures each user's `~/.aws/config` with the SSO p
 
 1. **System packages** — bubblewrap, socat, jq, git, ripgrep, AWS CLI v2
 2. **OS hardening** — `hidepid=invisible` on /proc, `umask 077` for all users
-3. **Managed settings** at `/etc/claude-code/managed-settings.json` — hardened config including:
-   - Bedrock with latest models (Opus 4.6, Sonnet 4.6, Haiku 4.5)
-   - Sandbox enforced (`failIfUnavailable: true`)
-   - Sandbox network domain allowlist (`allowManagedDomainsOnly`)
-   - `disableBypassPermissionsMode` — prevents `--dangerously-skip-permissions`
-   - `allowManagedPermissionRulesOnly` — users can't add their own permission rules
-   - `allowManagedHooksOnly` — users can't add their own hooks
-   - `allowManagedMcpServersOnly` — users can't add MCP servers
-   - Permission deny list: `sudo`, `curl`, `wget`, `ssh`, `scp`, all DB clients, `aws s3 cp/sync`, `aws rds/dynamodb/redshift`
+3. **Managed settings** at `/etc/claude-code/managed-settings.json` — see below
 4. **Pre-hook** at `/opt/claude-hooks/block-db-access.sh` — additional command-level blocking for DB clients and connection strings
 5. **SSO profile** at `~/.aws/config` per user + `/usr/local/bin/auth` helper (if `SsoStartUrl` provided)
 6. **OTel identity** at `/etc/profile.d/claude-otel.sh` — injects `developer.name` per user
 7. **Claude Code** installed for each user
 8. **Hourly user sync** from SSM Parameter Store via cron
+
+### Managed Settings (`/etc/claude-code/managed-settings.json`)
+
+Root-owned, users cannot modify. Loaded before any user settings. Customize in `template.yaml` UserData.
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_REGION": "us-east-1",
+    "DISABLE_AUTOUPDATER": "1",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_1M": "us.anthropic.claude-opus-4-6-v1[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_200K": "us.anthropic.claude-opus-4-6-v1",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-6",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "AWS_SDK_UA_APP_ID": "ClaudeCode",
+    "AWS_PROFILE": "claudecode-sso"
+  },
+  "model": "us.anthropic.claude-sonnet-4-6",
+  "disableBypassPermissionsMode": "disable",
+  "allowManagedPermissionRulesOnly": true,
+  "allowManagedHooksOnly": true,
+  "allowManagedMcpServersOnly": true,
+  "permissions": {
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(curl *)", "Bash(wget *)", "Bash(ssh *)", "Bash(scp *)",
+      "Bash(psql *)", "Bash(mysql *)", "Bash(mongosh *)", "Bash(redis-cli *)",
+      "Bash(sqlcmd *)", "Bash(cqlsh *)", "Bash(snowsql *)",
+      "Bash(aws s3 cp *)", "Bash(aws s3 sync *)",
+      "Bash(aws rds *)", "Bash(aws dynamodb *)", "Bash(aws redshift *)",
+      "Bash(aws neptune *)", "Bash(aws docdb *)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "network": {
+      "allowManagedDomainsOnly": true,
+      "allowedDomains": [
+        "bedrock-runtime.*.amazonaws.com",
+        "bedrock.*.amazonaws.com",
+        "sts.*.amazonaws.com",
+        "ssm.*.amazonaws.com",
+        "oidc.*.amazonaws.com",
+        "portal.sso.*.amazonaws.com",
+        "registry.npmjs.org",
+        "api.anthropic.com",
+        "sentry.io",
+        "statsig.anthropic.com",
+        "statsig.com"
+      ]
+    }
+  },
+  "effortLevel": "high"
+}
+```
+
+| Setting | What It Does |
+|---------|-------------|
+| `disableBypassPermissionsMode` | Prevents `--dangerously-skip-permissions` flag |
+| `allowManagedPermissionRulesOnly` | Users can't add their own allow/deny rules |
+| `allowManagedHooksOnly` | Users can't override or add hooks |
+| `allowManagedMcpServersOnly` | Users can't add MCP servers (prevents data exfiltration) |
+| `sandbox.failIfUnavailable` | Claude Code refuses to run if sandbox can't start |
+| `sandbox.network.allowManagedDomainsOnly` | Sandbox blocks all domains except the allowlist |
+
+### Per-User Settings (`~/.claude/settings.json`)
+
+Deployed to each user's home directory. References the pre-hook for DB command blocking.
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_USE_BEDROCK": "1",
+    "AWS_REGION": "us-east-1"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/claude-hooks/block-db-access.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ## User Management
 
