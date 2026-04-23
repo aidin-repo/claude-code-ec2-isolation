@@ -44,7 +44,7 @@ graph TD
   A -->|Yes| C["Can developers disable<br>controls on their laptops?"]
   C -->|"No (MDM-locked)"| D["Pattern 1: Laptop<br>+ Bedrock Guardrails<br>+ MDM-enforced settings<br>+ sandbox"]
   C -->|"Yes (admin access)"| E["Need server-side controls"]
-  E --> F["Need domain-level outbound<br>filtering beyond port blocking?<br>e.g. block pastebin.com, webhook.site"]
+  E --> F["Need to block ALL outbound traffic<br>including Claude Code's own process?<br>Sandbox only covers Bash commands"]
   F -->|No| G["Pattern 2: Shared EC2<br>SG + IAM + sandbox<br>+ managed settings"]
   F -->|Yes| H["Pattern 3: EC2 + Devcontainer<br>+ iptables domain allowlist"]
 
