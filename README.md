@@ -326,6 +326,39 @@ For maximum isolation, run Claude Code inside a Docker container with an iptable
 
 ### EC2-Only vs Devcontainer
 
+```mermaid
+block-beta
+  columns 1
+  block:sg["Security Group (hypervisor: HTTPS/HTTP only)"]
+    columns 1
+    block:iam["IAM Policy (deny all databases)"]
+      columns 1
+      block:os["OS Isolation (hidepid, umask 077, no sudo)"]
+        columns 1
+        block:docker["Docker Container (per-user: claude-code-username)"]
+          columns 1
+          block:fw["iptables Firewall (default-DROP, domain allowlist only)"]
+            columns 1
+            block:cc["Claude Code"]
+              columns 1
+              MS["Managed Settings (hardened, org-enforced)"]
+              SB["Sandbox / bubblewrap (filesystem + network)"]
+              HK["Pre-hooks (block DB commands)"]
+            end
+          end
+        end
+      end
+    end
+  end
+
+  style sg fill:#e8f5e9,stroke:#2e7d32,color:#000
+  style iam fill:#e3f2fd,stroke:#1565c0,color:#000
+  style os fill:#fff3e0,stroke:#e65100,color:#000
+  style docker fill:#f3e5f5,stroke:#7b1fa2,color:#000
+  style fw fill:#fce4ec,stroke:#c62828,color:#000
+  style cc fill:#fff8e1,stroke:#f57f17,color:#000
+```
+
 | Capability | EC2-Only | EC2 + Devcontainer |
 |------------|----------|-------------------|
 | **Network filtering** | Port-based (SG: HTTPS only) | Port-based + domain allowlist (iptables) |
