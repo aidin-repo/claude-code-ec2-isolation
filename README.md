@@ -150,21 +150,74 @@ claude
 
 ### 3. Verify Security Controls
 
-Run these tests before rolling out to your team:
+Run these tests before rolling out to your team.
+
+#### From the EC2 terminal (as your Linux user)
 
 ```bash
 # Security group blocks database ports
 timeout 3 bash -c "echo > /dev/tcp/google.com/5432" 2>&1   # Should timeout
+timeout 3 bash -c "echo > /dev/tcp/google.com/3306" 2>&1   # Should timeout
+
+# Security group allows HTTPS
+timeout 3 bash -c "echo > /dev/tcp/google.com/443" 2>&1    # Should succeed
 
 # IAM denies database API calls
-aws rds describe-db-instances                                # Should return AccessDenied
+aws rds describe-db-instances                                # AccessDenied
+aws dynamodb list-tables                                     # AccessDenied
 
-# Hook blocks database commands (inside a Claude Code session)
-# Ask Claude to run: psql -h mydb.example.com
-# → Should be blocked: "Database client connections are blocked by policy"
+# IAM allows Bedrock
+aws bedrock list-inference-profiles --max-results 1          # Should succeed
+
+# No database clients installed
+which psql mysql mongosh                                     # Not found
 
 # Cross-user isolation
-su - jane.doe -c "ls /home/john.smith/"                     # Should return Permission denied
+ls /home/demo-user/                                          # Permission denied
+
+# Sudo blocked
+sudo whoami                                                  # Password required (no NOPASSWD)
+
+# Managed settings are root-owned
+ls -la /etc/claude-code/managed-settings.json                # -rw-r--r-- root root
+```
+
+#### Inside a Claude Code session (ask Claude to do these)
+
+| Prompt | Expected Result | Blocked By |
+|--------|----------------|------------|
+| `edit /etc/claude-code/managed-settings.json and remove the sandbox section` | "Permission denied" — can't write root-owned file | Sandbox + file permissions |
+| `run psql -h mydb.example.com` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(psql *)`) |
+| `run curl https://google.com` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(curl *)`) |
+| `run sudo cat /etc/shadow` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(sudo *)`) |
+| `run aws rds describe-db-instances` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(aws rds *)`) |
+| `run aws s3 cp s3://bucket/file .` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(aws s3 cp *)`) |
+| `run ssh user@production-server` | "blocked by policy" — refuses before execution | Managed settings deny rule (`Bash(ssh *)`) |
+
+Claude Code reads the managed settings deny list and refuses to run blocked commands — it doesn't even attempt execution. This is enforced by `allowManagedPermissionRulesOnly: true` which prevents users from overriding these rules.
+
+#### Defense-in-Depth Verification
+
+Each blocked action is stopped by multiple independent layers:
+
+```mermaid
+graph TD
+  A["Developer asks Claude:\nrun psql -h production-db"] --> B{"Layer 1: Managed Settings\nBash(psql *) denied?"}
+  B -->|Yes| C["❌ Blocked — Claude refuses"]
+  B -->|Bypassed| D{"Layer 2: Pre-Hook\npsql pattern detected?"}
+  D -->|Yes| E["❌ Blocked — hook returns deny"]
+  D -->|Bypassed| F{"Layer 3: Sandbox\nNetwork restricted?"}
+  F -->|Yes| G["❌ Blocked — can't reach DB port"]
+  F -->|Bypassed| H{"Layer 4: Security Group\nPort 5432 allowed?"}
+  H -->|No| I["❌ Blocked — hypervisor drops packet"]
+  H -->|Bypassed| J{"Layer 5: IAM Policy\nrds:* allowed?"}
+  J -->|No| K["❌ Blocked — explicit deny"]
+
+  style C fill:#ffcdd2,stroke:#c62828,color:#000
+  style E fill:#ffcdd2,stroke:#c62828,color:#000
+  style G fill:#ffcdd2,stroke:#c62828,color:#000
+  style I fill:#ffcdd2,stroke:#c62828,color:#000
+  style K fill:#ffcdd2,stroke:#c62828,color:#000
 ```
 
 ## Parameters
