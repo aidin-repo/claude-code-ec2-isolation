@@ -45,7 +45,7 @@ graph TD
   C -->|"No (MDM-locked)"| D["Pattern 1: Laptop<br>+ Bedrock Guardrails<br>+ MDM-enforced settings"]
   C -->|"Yes (admin access)"| E["Need server-side controls"]
   E --> F["Are production databases<br>on the same VPC?"]
-  F -->|No| G["Pattern 2: Shared EC2<br>SG + IAM + managed settings"]
+  F -->|No| G["Pattern 2: Shared EC2<br>SG + IAM + sandbox<br>+ managed settings"]
   F -->|Yes| H["Pattern 3: EC2 + Devcontainer<br>+ iptables domain allowlist"]
 
   style B fill:#e8f5e9,stroke:#2e7d32,color:#000
