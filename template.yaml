@@ -406,19 +406,51 @@ Resources:
               "CLAUDE_CODE_USE_BEDROCK": "1",
               "AWS_REGION": "${AWS::Region}",
               "DISABLE_AUTOUPDATER": "1",
-              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+              "ANTHROPIC_DEFAULT_OPUS_MODEL_1M": "us.anthropic.claude-opus-4-6-v1[1m]",
+              "ANTHROPIC_DEFAULT_OPUS_MODEL_200K": "us.anthropic.claude-opus-4-6-v1",
+              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-6",
               "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
           $OTEL_SETTINGS
               "AWS_SDK_UA_APP_ID": "ClaudeCode",
               "AWS_PROFILE": "claudecode-sso"
             },
+            "model": "us.anthropic.claude-sonnet-4-6",
+            "disableBypassPermissionsMode": "disable",
+            "allowManagedPermissionRulesOnly": true,
+            "allowManagedHooksOnly": true,
+            "allowManagedMcpServersOnly": true,
             "permissions": {
-              "deny": ["Bash(sudo *)"]
+              "deny": [
+                "Bash(sudo *)",
+                "Bash(curl *)", "Bash(wget *)", "Bash(ssh *)", "Bash(scp *)",
+                "Bash(psql *)", "Bash(mysql *)", "Bash(mongosh *)", "Bash(redis-cli *)",
+                "Bash(sqlcmd *)", "Bash(cqlsh *)", "Bash(snowsql *)",
+                "Bash(aws s3 cp *)", "Bash(aws s3 sync *)",
+                "Bash(aws rds *)", "Bash(aws dynamodb *)", "Bash(aws redshift *)",
+                "Bash(aws neptune *)", "Bash(aws docdb *)"
+              ]
             },
             "sandbox": {
               "enabled": true,
-              "failIfUnavailable": true
-            }
+              "failIfUnavailable": true,
+              "network": {
+                "allowManagedDomainsOnly": true,
+                "allowedDomains": [
+                  "bedrock-runtime.*.amazonaws.com",
+                  "bedrock.*.amazonaws.com",
+                  "sts.*.amazonaws.com",
+                  "ssm.*.amazonaws.com",
+                  "oidc.*.amazonaws.com",
+                  "portal.sso.*.amazonaws.com",
+                  "registry.npmjs.org",
+                  "api.anthropic.com",
+                  "sentry.io",
+                  "statsig.anthropic.com",
+                  "statsig.com"
+                ]
+              }
+            },
+            "effortLevel": "high"
           }
           SETTINGS
 
@@ -660,17 +692,49 @@ Resources:
               "CLAUDE_CODE_USE_BEDROCK": "1",
               "AWS_REGION": "${AWS::Region}",
               "DISABLE_AUTOUPDATER": "1",
-              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-20250514-v1:0",
+              "ANTHROPIC_DEFAULT_OPUS_MODEL_1M": "us.anthropic.claude-opus-4-6-v1[1m]",
+              "ANTHROPIC_DEFAULT_OPUS_MODEL_200K": "us.anthropic.claude-opus-4-6-v1",
+              "ANTHROPIC_DEFAULT_SONNET_MODEL": "us.anthropic.claude-sonnet-4-6",
               "ANTHROPIC_DEFAULT_HAIKU_MODEL": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
               "AWS_SDK_UA_APP_ID": "ClaudeCode"
             },
+            "model": "us.anthropic.claude-sonnet-4-6",
+            "disableBypassPermissionsMode": "disable",
+            "allowManagedPermissionRulesOnly": true,
+            "allowManagedHooksOnly": true,
+            "allowManagedMcpServersOnly": true,
             "permissions": {
-              "deny": ["Bash(sudo *)"]
+              "deny": [
+                "Bash(sudo *)",
+                "Bash(curl *)", "Bash(wget *)", "Bash(ssh *)", "Bash(scp *)",
+                "Bash(psql *)", "Bash(mysql *)", "Bash(mongosh *)", "Bash(redis-cli *)",
+                "Bash(sqlcmd *)", "Bash(cqlsh *)", "Bash(snowsql *)",
+                "Bash(aws s3 cp *)", "Bash(aws s3 sync *)",
+                "Bash(aws rds *)", "Bash(aws dynamodb *)", "Bash(aws redshift *)",
+                "Bash(aws neptune *)", "Bash(aws docdb *)"
+              ]
             },
             "sandbox": {
               "enabled": true,
-              "failIfUnavailable": true
-            }
+              "failIfUnavailable": true,
+              "network": {
+                "allowManagedDomainsOnly": true,
+                "allowedDomains": [
+                  "bedrock-runtime.*.amazonaws.com",
+                  "bedrock.*.amazonaws.com",
+                  "sts.*.amazonaws.com",
+                  "ssm.*.amazonaws.com",
+                  "oidc.*.amazonaws.com",
+                  "portal.sso.*.amazonaws.com",
+                  "registry.npmjs.org",
+                  "api.anthropic.com",
+                  "sentry.io",
+                  "statsig.anthropic.com",
+                  "statsig.com"
+                ]
+              }
+            },
+            "effortLevel": "high"
           }
           DEVMANAGED
 

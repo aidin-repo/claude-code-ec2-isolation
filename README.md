@@ -267,8 +267,16 @@ The template automatically configures each user's `~/.aws/config` with the SSO p
 
 1. **System packages** — bubblewrap, socat, jq, git, ripgrep, AWS CLI v2
 2. **OS hardening** — `hidepid=invisible` on /proc, `umask 077` for all users
-3. **Managed settings** at `/etc/claude-code/managed-settings.json` — Bedrock config, OTel (if provided), deny sudo
-4. **Pre-hook** at `/opt/claude-hooks/block-db-access.sh` — blocks database clients, connection strings, AWS database CLI
+3. **Managed settings** at `/etc/claude-code/managed-settings.json` — hardened config including:
+   - Bedrock with latest models (Opus 4.6, Sonnet 4.6, Haiku 4.5)
+   - Sandbox enforced (`failIfUnavailable: true`)
+   - Sandbox network domain allowlist (`allowManagedDomainsOnly`)
+   - `disableBypassPermissionsMode` — prevents `--dangerously-skip-permissions`
+   - `allowManagedPermissionRulesOnly` — users can't add their own permission rules
+   - `allowManagedHooksOnly` — users can't add their own hooks
+   - `allowManagedMcpServersOnly` — users can't add MCP servers
+   - Permission deny list: `sudo`, `curl`, `wget`, `ssh`, `scp`, all DB clients, `aws s3 cp/sync`, `aws rds/dynamodb/redshift`
+4. **Pre-hook** at `/opt/claude-hooks/block-db-access.sh` — additional command-level blocking for DB clients and connection strings
 5. **SSO profile** at `~/.aws/config` per user + `/usr/local/bin/auth` helper (if `SsoStartUrl` provided)
 6. **OTel identity** at `/etc/profile.d/claude-otel.sh` — injects `developer.name` per user
 7. **Claude Code** installed for each user
