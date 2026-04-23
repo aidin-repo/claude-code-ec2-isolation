@@ -768,6 +768,7 @@ Resources:
               sleep infinity
 
             sleep 2
+            docker exec --user root "$CONTAINER_NAME" chown node:node /workspace
             docker exec --user root "$CONTAINER_NAME" /usr/local/bin/init-firewall.sh
             docker exec -it -u node "$CONTAINER_NAME" bash -c "cd $PROJECT_DIR && claude"
           fi
