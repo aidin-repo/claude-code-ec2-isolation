@@ -344,6 +344,31 @@ For maximum isolation, run Claude Code inside a Docker container with an iptable
 4. **Firewall initializes** — resolves allowlisted domains to IPs, sets default-DROP, only permits allowlisted traffic
 5. **Claude Code starts** inside the container using the developer's SSO identity
 
+Each developer gets their own isolated container. Running the launch script again attaches to the existing container.
+
+### Per-User Container Isolation
+
+```
+Host EC2                                    Container (claude-code-jane.doe)
+/home/jane.doe/.aws/    ──(staged)──►       /home/node/.aws/       (SSO creds, read-only)
+/home/jane.doe/workspace/ ──────────►       /workspace/            (project files, read-write)
+```
+
+| What | Isolation |
+|------|-----------|
+| **Container** | Each user gets `claude-code-<username>` — separate filesystem, processes, firewall |
+| **Credentials** | SSO cache copied per-user, mounted read-only — users can't see each other's creds |
+| **Workspace** | `~/workspace` on host mapped to `/workspace` in container — per-user, not shared |
+| **Reattach** | Running launch script again attaches to existing container, doesn't create a new one |
+
+### Scaling
+
+| Concurrent Users | Recommended Instance | RAM per Container | Notes |
+|-----------------|---------------------|-------------------|-------|
+| 5-15 | `t3.2xlarge` (32 GB) | ~1.5-2 GB | Default for POC |
+| 15-50 | `m5.4xlarge` (64 GB) | ~1.5-2 GB | Right-size for medium teams |
+| 50-100 | `m5.12xlarge` (192 GB) | ~1.5-2 GB | Not all 100 need to be active simultaneously |
+
 ### Allowed Domains (Firewall Allowlist)
 
 | Domain | Purpose |
