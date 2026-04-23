@@ -72,9 +72,9 @@ Infra costs are the same for Patterns 2 and 3 (~$298/mo for t3.2xlarge + VPC end
 | Developer runs `psql` to prod DB | Permission deny rule | Permission deny + SG blocks port + IAM denies | All of EC2 + iptables drops traffic |
 | Developer runs `curl` to exfiltrate data | Permission deny rule | Permission deny + sandbox network | Permission deny + sandbox + iptables allowlist |
 | Developer disables managed settings | Can do (with admin) | Cannot — root-owned, no sudo | Cannot — baked into container image |
-| Developer adds rogue MCP server | `allowManagedMcpServersOnly` | Same | Same |
-| Developer uses `--dangerously-skip-permissions` | `disableBypassPermissionsMode` | Same | Same |
-| Lateral movement to other HTTPS services | Sandbox `allowedDomains` | SG allows all HTTPS | iptables allows only allowlisted domains |
+| Developer adds rogue MCP server | `allowManagedMcpServersOnly` (blocks unauthorized integrations like Jira, Notion, Slack) | Same | Same |
+| Developer uses `--dangerously-skip-permissions` | `disableBypassPermissionsMode` (prevents CLI flag that skips all permission checks) | Same | Same |
+| Lateral movement to other HTTPS services | Sandbox `allowedDomains` (restricts bash commands only) | SG allows all HTTPS (any port 443 endpoint reachable) | iptables allows only allowlisted domains (all traffic restricted) |
 
 ## How It Works
 
