@@ -135,6 +135,8 @@ These two controls are complementary — managed settings are broader, sandbox i
 
 Managed settings catch blocked commands **before execution** — Claude Code reads the deny rules and refuses. The sandbox catches anything that slips through at the **kernel level** — even if a command somehow runs, the kernel blocks unauthorized filesystem and network access.
 
+> **Note:** The sandbox isolates Bash subprocesses only. Claude Code's built-in tools (Read, Write, Edit) and its own Node.js process are not sandboxed — they're controlled by permission rules and managed settings instead. See [Claude Code Sandboxing — What sandboxing does not cover](https://code.claude.com/docs/en/sandboxing).
+
 ## Quick Start
 
 ### Prerequisites
