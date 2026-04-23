@@ -500,6 +500,16 @@ aws ssm send-command \
 
 ## Optional: Devcontainer Isolation
 
+### Do You Need the Devcontainer?
+
+**Most teams don't.** The EC2 alone blocks database access completely — security groups drop all non-HTTPS traffic at the hypervisor, IAM denies all database API calls, and managed settings block database commands.
+
+The gap the devcontainer fills: **the EC2 security group allows ALL HTTPS traffic (port 443).** Claude Code on the EC2 can reach any HTTPS endpoint — `pastebin.com`, `webhook.site`, any SaaS app. The sandbox `allowedDomains` restricts this for bash commands, but Claude Code's own Node.js process (telemetry, API calls, npm) isn't covered by the sandbox.
+
+The devcontainer adds **iptables domain-level filtering at the OS level** — only allowlisted domains are reachable, covering ALL traffic from the container (not just bash).
+
+> Start with EC2 only. Add the devcontainer if your security review requires domain-level outbound filtering or container-level process isolation between developers.
+
 For maximum isolation, run Claude Code inside a Docker container with an iptables-based domain allowlist. This adds a network isolation layer on top of security groups and IAM — filtering by domain, not just port.
 
 ### EC2-Only vs Devcontainer
