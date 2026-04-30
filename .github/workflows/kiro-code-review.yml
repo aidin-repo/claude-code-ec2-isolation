@@ -1,0 +1,26 @@
+name: Kiro Code Review
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Kiro CLI
+        run: curl -fsSL https://cli.kiro.dev/install | bash
+
+      - name: Run Kiro code reviewer agent
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+        run: |
+          kiro-cli chat \
+            --agent code-reviewer \
+            --no-interactive \
+            "Review the files in this repository and provide a summary of findings"
