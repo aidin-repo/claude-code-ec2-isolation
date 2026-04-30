@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Sensitive Data Check",
+  "description": "Scans files for sensitive information like API keys, AWS account IDs, email addresses, passwords, secrets, and other risky data before they are written to code",
+  "version": "1",
+  "when": {
+    "type": "preToolUse",
+    "toolTypes": [
+      "write"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Before writing this file, carefully scan the content for any sensitive information including:\n- API keys or tokens (e.g. AKIA..., sk-..., Bearer tokens)\n- AWS account IDs (12-digit numbers)\n- Email addresses\n- Passwords or secrets (hardcoded strings assigned to variables like password, secret, token, key)\n- Private keys or certificates\n- Database connection strings with credentials\n- IP addresses of internal/private systems\n\nIf any sensitive data is found, BLOCK the write and explain what was detected and where. Suggest using environment variables, AWS Secrets Manager, or .env files instead.\n\nIf the content is clean, allow the write to proceed."
+  }
+}
